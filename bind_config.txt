@@ -1,1 +1,156 @@
 bind config
+
+create a couple of vms using oracle virtual box
+each vm has 2 nics configured as follows:
+nic1: 
+nat
+nic2:
+host-only-adapter
+
+start the vms and use nmtui to assign ips to nic2
+nic1 will allow connection to the internet
+nic2 will allow connection to internal vms
+
+e.g. ip -4 addr to determine current ips, then use nmtui to assign them manually to nic2 of each vm
+
+# Set hostname first
+hostnamectl set-hostname host1.local
+
+# set network addesses on host1 and host2
+nmtui
+192.168.56.101/24 - enp0s8
+192.168.56.1 - gateway
+
+nmtui
+192.168.56.102/24
+192.168.56.1 - gateway
+
+# Install bind packages
+yum install bind bind-utils
+
+# host01 is our ns1
+vi /etc/named.conf
+acl "trusted" {
+   192.168.56.101;	# ns1 and host01
+   192.168.56.102;	# host02
+};
+
+options {
+   listen-on port 53 {127.0.0.1; 192.168.56.101; };
+   listen-on-v6 port 53 { ::1; };
+   
+   allow-query { trusted; };	# allow queries from "trusted" clients
+};
+
+include "/etc/named/named.conf.local";
+
+# on host01, open the following:
+vi /etc/named/named.conf.local
+
+zone "local" {
+  type master;
+  file "/etc/named/zones/db.local";	# zone file path
+};
+
+zone "56.168.192.in-addr.arpa" {
+   type master;
+   file "/etc/named/zones/db.192.168.56";	# 192.168.56.0/24 subnet
+};
+
+# forward zone file setup
+chmod 755 /etc/named
+mkdir /etc/named/zones
+
+vi /etc/named/zones/db.local
+
+$TTL    604800
+@       IN      SOA             ns1.local.      admin.local. (
+                5       ; Serial
+                604800  ; Refresh
+                86400   ; Retry
+                2419200 ; Expire
+                604800  ; Negative Cache TTL
+)
+
+; name servers - NS records
+        IN      NS      ns1.local.
+
+; name servers - A records
+ns1.local.      IN      A       192.168.56.101
+
+; 192.168.56.0/24 - A records
+host01.local.   IN      A       192.168.56.101
+host02.local.   IN      A       192.168.56.102
+
+# Every time you edit a zone file, you should increment the serial value before you restart 
+# the named process
+
+# reverse zone file setup
+
+vi /etc/named/zones/db.192.168.56
+
+$TTL    604800
+@       IN              SOA             local.  admin.local. (
+                5       ; Serial
+                604800  ; Refresh
+                86400   ; Retry
+                2419200 ; Expire
+                6048400 ; Negative Cache TTL
+)
+
+; name servers - NS records
+        IN              NS              ns1.local.
+
+; PTR Records
+101             IN      PTR             ns1.local.      ; 192.168.56.101
+102             IN      PTR             host02.local    ; 192.168.56.102
+
+# check configuration
+named-checkconf
+named-checkzone local /etc/named/zones/db.local
+named-checkzone 101.56.in-addr.arpa /etc/named/zones/db.192.168.56
+
+# start bind
+systemctl enable named
+systemctl start named
+
+# configure clients
+vi /etc/resolv.conf
+
+search local	# private domain
+nameserver 192.168.56.101	# ns1 private IP address
+
+# open tcp and udp port 53 on the dns servers
+firewall-cmd --zone=public --add-port=53/tcp
+firewall-cmd --zone=public --add-port=53/udp
+
+firewall-cmd --zone=public --list-ports
+
+firewall-cmd --zone=public --permanent --add-port=53/tcp
+firewall-cmd --zone=public --permanent --add-port=53/udp
+
+# update resolv.conf on all hosts
+search local
+nameserver 192.168.56.101
+nameserver 192.168.1.1
+
+# checks
+nslookup ns1
+
+Server:         192.168.56.101
+Address:        192.168.56.101#53
+
+Name:   ns1.local
+Address: 192.168.56.101
+
+
+nslookup host01
+nslookup host02
+
+nslookup 192.168.56.101
+nslookup 192.168.56.102
+
+Server:         192.168.56.101
+Address:        192.168.56.101#53
+
+102.56.168.192.in-addr.arpa     name = host02.local.56.168.192.in-addr.arpa.
