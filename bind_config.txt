@@ -1,5 +1,10 @@
 bind config
 
+# useful links
+https://blogs.oracle.com/scoter/networking-in-virtualbox-v2
+https://www.digitalocean.com/community/tutorials/how-to-set-up-a-firewall-using-firewalld-on-centos-7
+https://www.digitalocean.com/community/tutorials/how-to-configure-bind-as-a-private-network-dns-server-on-ubuntu-14-04
+
 create a couple of vms using oracle virtual box
 each vm has 2 nics configured as follows:
 nic1: 
